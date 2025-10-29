@@ -8,6 +8,7 @@ import json
 import hmac
 import hashlib
 import os
+import time
 
 # Maximum size for grouped arrays (in characters).
 # This ensures we are below the maximum size of an item in a RunPod stream.
@@ -57,13 +58,22 @@ def send_webhook(webhook_url, recording_id, status, transcription_text=None, err
         payload['error'] = error
     
     # Get webhook secret from environment variable
-    webhook_secret = os.environ.get('WEBHOOK_SECRET', '')
+    webhook_secret = os.environ.get('IVRIT_WEBHOOK_SECRET', '')
+    
+    # Get Vercel protection bypass token from environment variable
+    vercel_bypass_token = os.environ.get('VERCEL_AUTOMATION_BYPASS_SECRET', '')
     
     headers = {'Content-Type': 'application/json'}
+
+    # print(f'INFO: webhook_secret: {webhook_secret} with {vercel_bypass_token}')
+    # Add Vercel deployment protection bypass header if token is provided
+    if vercel_bypass_token:
+        headers['x-vercel-protection-bypass'] = vercel_bypass_token
+    
     
     # Generate HMAC signature if secret is provided
     if webhook_secret:
-        payload_str = json.dumps(payload, sort_keys=True)
+        payload_str = json.dumps(payload)
         signature = hmac.new(
             webhook_secret.encode('utf-8'),
             payload_str.encode('utf-8'),
@@ -71,19 +81,26 @@ def send_webhook(webhook_url, recording_id, status, transcription_text=None, err
         ).hexdigest()
         headers['X-Webhook-Signature'] = signature
     
-    try:
-        response = requests.post(
-            webhook_url,
-            json=payload,
-            headers=headers,
-            timeout=10
-        )
-        response.raise_for_status()
-        logging.info(f"Webhook sent successfully to {webhook_url} for recording {recording_id} with status {status}")
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Failed to send webhook to {webhook_url}: {str(e)}")
-    except Exception as e:
-        logging.error(f"Unexpected error sending webhook: {str(e)}")
+    # Send webhook 3 times with 1 second delay between attempts
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.post(
+                webhook_url,
+                json=payload,
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            logging.info(f"Webhook sent successfully to {webhook_url} for recording {recording_id} with status {status} (attempt {attempt}/{max_attempts})")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to send webhook to {webhook_url} (attempt {attempt}/{max_attempts}): {str(e)}")
+        except Exception as e:
+            logging.error(f"Unexpected error sending webhook (attempt {attempt}/{max_attempts}): {str(e)}")
+        
+        # Sleep for 1 second before next attempt (except after the last attempt)
+        if attempt < max_attempts:
+            time.sleep(1)
 
 def transcribe(job):
     engine = job['input'].get('engine', 'faster-whisper')
