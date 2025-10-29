@@ -65,7 +65,7 @@ def send_webhook(webhook_url, recording_id, status, transcription_text=None, err
     
     headers = {'Content-Type': 'application/json'}
 
-    # print(f'INFO: webhook_secret: {webhook_secret} with {vercel_bypass_token}')
+    print(f'Sending webhook to {webhook_url}')
     # Add Vercel deployment protection bypass header if token is provided
     if vercel_bypass_token:
         headers['x-vercel-protection-bypass'] = vercel_bypass_token
