@@ -106,6 +106,8 @@ def transcribe(job):
     engine = job['input'].get('engine', 'faster-whisper')
     model_name = job['input'].get('model', None)
     is_streaming = job['input'].get('streaming', False)
+
+    is_debug = job['input'].get('debug', False)
     
     # Get webhook parameters
     webhook_url = job['input'].get('webhook_url', None)
@@ -165,7 +167,10 @@ def transcribe(job):
                     flattened_result.extend(entry)
                 else:
                     flattened_result.append(entry)
-            transcription_text = extract_transcription_text(flattened_result)
+            if is_debug:
+                transcription_text = flattened_result
+            else:
+                transcription_text = extract_transcription_text(flattened_result)
             # Send completion webhook with full transcription
             send_webhook(webhook_url, recording_id, 'transcribed', transcription_text=transcription_text)
             yield { 'result' : result }
