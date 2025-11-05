@@ -1,0 +1,168 @@
+# Kubernetes deployment for GCP GKE
+# GPU worker deployment with autoscaling
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scribe-rabbit-worker
+  labels:
+    app: scribe-rabbit
+    component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: scribe-rabbit
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: scribe-rabbit
+        component: worker
+    spec:
+      containers:
+      - name: worker
+        image: gcr.io/PROJECT_ID/scribe-rabbit-worker:latest
+        resources:
+          requests:
+            nvidia.com/gpu: 1
+            memory: "8Gi"
+            cpu: "2"
+          limits:
+            nvidia.com/gpu: 1
+            memory: "16Gi"
+            cpu: "4"
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: redis-url
+        - name: CELERY_BROKER_URL
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: redis-url
+        - name: CELERY_RESULT_BACKEND
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: redis-url
+      nodeSelector:
+        cloud.google.com/gke-accelerator: nvidia-tesla-t4
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scribe-rabbit-api
+  labels:
+    app: scribe-rabbit
+    component: api
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: scribe-rabbit
+    component: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scribe-rabbit-api
+  labels:
+    app: scribe-rabbit
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: scribe-rabbit
+      component: api
+  template:
+    metadata:
+      labels:
+        app: scribe-rabbit
+        component: api
+    spec:
+      containers:
+      - name: api
+        image: gcr.io/PROJECT_ID/scribe-rabbit-api:latest
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: redis-url
+        - name: CELERY_BROKER_URL
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: redis-url
+        - name: CELERY_RESULT_BACKEND
+          valueFrom:
+            secretKeyRef:
+              name: scribe-rabbit-secrets
+              key: redis-url
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: scribe-rabbit-api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: scribe-rabbit-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
