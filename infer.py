@@ -146,7 +146,7 @@ def transcribe(job):
 
     # Send webhook notification that transcription has started
     send_webhook(webhook_url, recording_id, 'transcribing')
-
+    logging.info(f'Starting transcription for recording {recording_id} using model {model_name} on engine {engine}. Debug mode: {is_debug}, Streaming mode: {is_streaming}')
     try:
         stream_gen = transcribe_core(engine, model_name, transcribe_args)
 
@@ -167,10 +167,8 @@ def transcribe(job):
                     flattened_result.extend(entry)
                 else:
                     flattened_result.append(entry)
-            if is_debug:
-                transcription_text = flattened_result
-            else:
-                transcription_text = extract_transcription_text(flattened_result)
+            transcription_text = extract_transcription_text(flattened_result)
+            
             # Send completion webhook with full transcription
             send_webhook(webhook_url, recording_id, 'transcribed', transcription_text=transcription_text)
             yield { 'result' : result }
